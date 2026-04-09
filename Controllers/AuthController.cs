@@ -1,0 +1,102 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using TaskManagerAPI.Data;
+using TaskManagerAPI.Models;
+using TaskManagerAPI.Security;
+
+namespace TaskManagerAPI.Controllers
+{
+    [ApiController]
+    [Route("api")]
+    public class AuthController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+        private readonly IConfiguration _configuration;
+
+        public AuthController(AppDbContext context, IConfiguration configuration)
+        {
+            _context = context;
+            _configuration = configuration;
+        }
+
+        [HttpPost("register")]
+        public async Task<ActionResult> Register([FromBody] RegisterRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+            {
+                return BadRequest("Username e password são obrigatórios.");
+            }
+
+            var normalizedUsername = request.Username.Trim().ToLowerInvariant();
+            var userExists = await _context.Users.AnyAsync(u => u.Username == normalizedUsername);
+            if (userExists)
+            {
+                return Conflict("Usuário já existe.");
+            }
+
+            var user = new User
+            {
+                Username = normalizedUsername,
+                PasswordHash = PasswordHasher.Hash(request.Password)
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Usuário registrado com sucesso." });
+        }
+
+        [HttpPost("login")]
+        public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+            {
+                return BadRequest("Username e password são obrigatórios.");
+            }
+
+            var normalizedUsername = request.Username.Trim().ToLowerInvariant();
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == normalizedUsername);
+
+            if (user is null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
+            {
+                return Unauthorized("Credenciais inválidas.");
+            }
+
+            var token = GenerateJwtToken(user);
+            return Ok(new AuthResponse { Token = token });
+        }
+
+        private string GenerateJwtToken(User user)
+        {
+            var jwtSettings = _configuration.GetSection("Jwt");
+            var key = jwtSettings["Key"] ?? throw new InvalidOperationException("Jwt:Key não configurado.");
+            var issuer = jwtSettings["Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer não configurado.");
+            var audience = jwtSettings["Audience"] ?? throw new InvalidOperationException("Jwt:Audience não configurado.");
+            var expiresMinutes = int.TryParse(jwtSettings["ExpiresInMinutes"], out var minutes) ? minutes : 60;
+
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, user.Username),
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Username),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+            var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
+                claims: claims,
+                expires: DateTime.UtcNow.AddMinutes(expiresMinutes),
+                signingCredentials: creds);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+    }
+}
