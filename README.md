@@ -1,6 +1,6 @@
 # TaskManagerAPI
 
-API REST desenvolvida com ASP.NET Core para gerenciamento de tarefas, com autenticacao JWT, Entity Framework Core e banco SQLite.
+API REST para gerenciamento de tarefas com autenticação JWT, desenvolvida em ASP.NET Core com Entity Framework Core e SQLite, incluindo rotas protegidas, validações, filtros de consulta e documentação via Swagger.
 
 ## Funcionalidades
 
