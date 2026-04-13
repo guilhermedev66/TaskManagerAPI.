@@ -21,7 +21,10 @@ namespace TaskManagerAPI.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TaskItem>>> GetTasks()
         {
-            var tasks = await _context.Tasks.AsNoTracking().ToListAsync();
+            var tasks = await _context.Tasks
+                .AsNoTracking()
+                .OrderByDescending(t => t.CreatedAt)
+                .ToListAsync();
             return Ok(tasks);
         }
 
@@ -31,6 +34,7 @@ namespace TaskManagerAPI.Controllers
             var tasks = await _context.Tasks
                 .AsNoTracking()
                 .Where(t => t.IsCompleted)
+                .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
             return Ok(tasks);
@@ -42,6 +46,7 @@ namespace TaskManagerAPI.Controllers
             var tasks = await _context.Tasks
                 .AsNoTracking()
                 .Where(t => !t.IsCompleted)
+                .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
             return Ok(tasks);
@@ -58,7 +63,8 @@ namespace TaskManagerAPI.Controllers
             var normalizedTitle = title.Trim().ToLowerInvariant();
             var tasks = await _context.Tasks
                 .AsNoTracking()
-                .Where(t => t.Title.ToLower().Contains(normalizedTitle))
+                .Where(t => EF.Functions.Like(t.Title, $"%{normalizedTitle}%"))
+                .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
             return Ok(tasks);
@@ -77,20 +83,34 @@ namespace TaskManagerAPI.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<TaskItem>> CreateTask([FromBody] TaskItem task)
+        public async Task<ActionResult<TaskItem>> CreateTask([FromBody] CreateTaskRequest request)
         {
-            task.CreatedAt = DateTime.UtcNow;
+            if (request.DueDate.HasValue && request.DueDate.Value < DateTime.UtcNow)
+            {
+                return BadRequest("DueDate não pode estar no passado.");
+            }
+
+            var task = new TaskItem
+            {
+                Title = request.Title.Trim(),
+                Description = request.Description?.Trim(),
+                Priority = request.Priority,
+                DueDate = request.DueDate,
+                CreatedAt = DateTime.UtcNow,
+                IsCompleted = false
+            };
+
             _context.Tasks.Add(task);
             await _context.SaveChangesAsync();
             return CreatedAtAction(nameof(GetTaskById), new { id = task.Id }, task);
         }
 
         [HttpPut("{id:int}")]
-        public async Task<IActionResult> UpdateTask(int id, [FromBody] TaskItem task)
+        public async Task<IActionResult> UpdateTask(int id, [FromBody] UpdateTaskRequest request)
         {
-            if (id != task.Id)
+            if (request.DueDate.HasValue && request.DueDate.Value < DateTime.UtcNow && !request.IsCompleted)
             {
-                return BadRequest("O ID da URL deve ser igual ao ID do corpo.");
+                return BadRequest("DueDate não pode estar no passado para tarefas pendentes.");
             }
 
             var existingTask = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == id);
@@ -99,11 +119,11 @@ namespace TaskManagerAPI.Controllers
                 return NotFound();
             }
 
-            existingTask.Title = task.Title;
-            existingTask.Description = task.Description;
-            existingTask.Priority = task.Priority;
-            existingTask.DueDate = task.DueDate;
-            existingTask.IsCompleted = task.IsCompleted;
+            existingTask.Title = request.Title.Trim();
+            existingTask.Description = request.Description?.Trim();
+            existingTask.Priority = request.Priority;
+            existingTask.DueDate = request.DueDate;
+            existingTask.IsCompleted = request.IsCompleted;
             await _context.SaveChangesAsync();
 
             return NoContent();
