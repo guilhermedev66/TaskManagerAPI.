@@ -26,11 +26,6 @@ namespace TaskManagerAPI.Controllers
         [HttpPost("register")]
         public async Task<ActionResult> Register([FromBody] RegisterRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-            {
-                return BadRequest("Username e password são obrigatórios.");
-            }
-
             var normalizedUsername = request.Username.Trim().ToLowerInvariant();
             var userExists = await _context.Users.AnyAsync(u => u.Username == normalizedUsername);
             if (userExists)
@@ -53,11 +48,6 @@ namespace TaskManagerAPI.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-            {
-                return BadRequest("Username e password são obrigatórios.");
-            }
-
             var normalizedUsername = request.Username.Trim().ToLowerInvariant();
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == normalizedUsername);
 
